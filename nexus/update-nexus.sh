@@ -9,9 +9,13 @@ set -u
 # Date:   23.02.2018
 ######################################
 
+
 recover_from_error()
 {
 	echo -e "ERROR: reverting to existing installation"
+
+	echo -e "change to installation dir"
+	cd $INSTALL_DIR
 
 	echo -e "remove symlink to failed update version"
 	rm nexus
@@ -52,8 +56,10 @@ trap error ERR TERM QUIT
 
 
 
+INSTALL_DIR="/usr/local"
+
 echo -e "change to installation dir"
-cd /usr/local
+cd $INSTALL_DIR
 
 echo -e "get current nexus folder name / version"
 OLD_NEXUS_FOLDER="`readlink nexus`"
@@ -101,6 +107,7 @@ chown nexus:nexus /var/run/nexus
 echo -e "install new plugins"
 
 PLUGIN_PATH="/home/nexus/nexus-main-repo/plugin-repository"
+
 cd $PLUGIN_PATH
 
 echo -e "install plugins/nexus-p2-bridge-plugin"

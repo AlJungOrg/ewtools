@@ -22,6 +22,9 @@ set -u
 #<<==========================================================================<<
 rollback()
 {
+	set +u
+	set +e
+
 	echo -e "ERROR: installation failed, rolling back to original installation"
 
 	echo -e "change to installation dir"
@@ -34,10 +37,8 @@ rollback()
 	ln -s $OLD_NEXUS_FOLDER nexus
 
 	echo -e "remove possibly existing new plugin update files"
-	rm -f $P2_BRIDGE_PLUGIN_ZIP_NEW
-	rm -f $P2_REPO_PLUGIN_ZIP_NEW
-	rm -rf nexus-p2-repository-plugin-$NEW_NEXUS_FOLDER
-	rm -rf nexus-p2-bridge-plugin-$NEW_NEXUS_FOLDER
+	rm -rf $PLUGIN_PATH/nexus-p2-repository-plugin-$NEW_NEXUS_VERSION
+	rm -rf $PLUGIN_PATH/nexus-p2-bridge-plugin-$NEW_NEXUS_VERSION
 
 	echo -e "restore old plugins"
 	if [ -e "$PLUGIN_REVERT_PATH/$P2_REPO_PLUGIN_OLD" ]; then
@@ -86,8 +87,9 @@ cd $INSTALL_DIR
 
 echo -e "get current nexus folder name / version"
 declare -r OLD_NEXUS_FOLDER="`readlink nexus`"
-declare -r P2_REPO_PLUGIN_OLD=nexus-p2-repository-plugin-$OLD_NEXUS_FOLDER
-declare -r P2_BRIDGE_PLUGIN_OLD=nexus-p2-bridge-plugin-$OLD_NEXUS_FOLDER
+declare -r OLD_NEXUS_VERSION="`echo $OLD_NEXUS_FOLDER | awk -F- '{print $2"-"$3}'`"
+declare -r P2_REPO_PLUGIN_OLD="$PLUGIN_PATH/nexus-p2-repository-plugin-$OLD_NEXUS_VERSION"
+declare -r P2_BRIDGE_PLUGIN_OLD="$PLUGIN_PATH/nexus-p2-bridge-plugin-$OLD_NEXUS_VERSION"
 
 echo -e "remove possibly existing old download file"
 rm -f nexus-latest-bundle.tar.gz
@@ -97,18 +99,22 @@ wget http://www.sonatype.org/downloads/nexus-latest-bundle.tar.gz
 
 echo -e "get the folder name of the new nexus version"
 declare -r NEW_NEXUS_FOLDER="$(tar -tzf nexus-latest-bundle.tar.gz | head -1 | cut -f1 -d"/")"
+declare -r NEW_NEXUS_VERSION="`echo $NEW_NEXUS_FOLDER | awk -F- '{print $2"-"$3}'`"
 
-if [[ "${OLD_NEXUS_FOLDER}" == "$NEW_NEXUS_FOLDER" ]]; then
+
+
+if [[ "${OLD_NEXUS_VERSION}" == "$NEW_NEXUS_VERSION" ]]; then
 	echo -e "no update needed, newest version $NEW_NEXUS_FOLDER already installed"
 	exit 0
 fi
 
 
 #--------- install update
-echo -e "installing new nexus $NEW_NEXUS_FOLDER, shutting down nexus $OLD_NEXUS_FOLDER..."
+echo -e "installing new nexus $NEW_NEXUS_VERSION, shutting down nexus ${OLD_NEXUS_VERSION}"
 systemctl stop nexus.service
 
 echo -e "unpack new nexus"
+rm -rf $NEW_NEXUS_FOLDER                 # remove possibly preexisting folder, maybe from prev failed installation
 tar -xf nexus-latest-bundle.tar.gz
 
 echo -e "copy config to new nexus"
@@ -136,17 +142,15 @@ chown nexus:nexus /var/run/nexus
 echo -e "update plugins matching nexus version $NEW_NEXUS_FOLDER"
 cd $PLUGIN_PATH
 
-echo -e "install plugins/nexus-p2-bridge-plugin"
-P2_BRIDGE_PLUGIN_ZIP_NEW=nexus-p2-bridge-plugin-$NEW_NEXUS_FOLDER-bundle.zip
-wget http://search.maven.org/remotecontent?filepath=org/sonatype/nexus/plugins/nexus-p2-bridge-plugin/$NEW_NEXUS_FOLDER/nexus-p2-bridge-plugin-$NEW_NEXUS_FOLDER-bundle.zip --output-document=$P2_BRIDGE_PLUGIN_ZIP_NEW
-unzip $P2_BRIDGE_PLUGIN_ZIP_NEW
-rm $P2_BRIDGE_PLUGIN_ZIP_NEW
-
-echo -e "install nexus-p2-repository-plugin"
-P2_REPO_PLUGIN_ZIP_NEW=nexus-p2-bridge-plugin-$NEW_NEXUS_FOLDER-bundle.zip
-wget http://search.maven.org/remotecontent?filepath=org/sonatype/nexus/plugins/nexus-p2-repository-plugin/$NEW_NEXUS_FOLDER/nexus-p2-repository-plugin-$NEW_NEXUS_FOLDER-bundle.zip --output-document=$P2_REPO_PLUGIN_ZIP_NEW
-unzip $P2_REPO_PLUGIN_ZIP_NEW
-rm $P2_REPO_PLUGIN_ZIP_NEW
+for i in "bridge" "repository"; do
+	echo -e "install plugins/nexus-p2-$i-plugin"
+	P2_PLUGIN_ZIP_NEW=nexus-p2-$i-plugin-$NEW_NEXUS_VERSION-bundle.zip
+	rm -rf $P2_PLUGIN_ZIP_NEW
+	wget http://search.maven.org/remotecontent?filepath=org/sonatype/nexus/plugins/nexus-p2-$i-plugin/$NEW_NEXUS_VERSION/nexus-p2-$i-plugin-$NEW_NEXUS_VERSION-bundle.zip --output-document=$P2_PLUGIN_ZIP_NEW
+	rm -rf "$PLUGIN_PATH/nexus-p2-$i-plugin-$NEW_NEXUS_VERSION"
+	unzip -o $P2_PLUGIN_ZIP_NEW
+	rm $P2_PLUGIN_ZIP_NEW
+done
 
 echo -e "move old plugins out of the way"
 mv $P2_REPO_PLUGIN_OLD $PLUGIN_REVERT_PATH
